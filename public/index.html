@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bestellungen und Karte</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            background: #003a6f;
+            opacity: 0.6;
+            border-radius: 50%;
+            animation: glide 20s ease-in-out infinite;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            z-index: 1;
+        }
+
+        .title {
+            font-size: 3rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin: 0;
+        }
+
+        .counter {
+            font-size: 5rem;
+            color: #00d4ff;
+            animation: pulse 1.5s infinite;
+            margin: 10px 0;
+        }
+
+        .map-container {
+            width: 90%;
+            max-width: 1200px;
+            height: 80%;
+            margin: 0 auto;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+            z-index: 1;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        @keyframes glide {
+            0% {
+                transform: translate(0, 0) scale(1);
+                opacity: 0.8;
+            }
+            25% {
+                transform: translate(50px, -30px) scale(1.2);
+                opacity: 1;
+            }
+            50% {
+                transform: translate(-100px, 60px) scale(0.8);
+            }
+            75% {
+                transform: translate(30px, -90px) scale(1.1);
+            }
+            100% {
+                transform: translate(0, 0) scale(1);
+                opacity: 0.8;
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .counter {
+                font-size: 3rem;
+            }
+            .map-container {
+                height: 50%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+
+    <div class="header">
+        <p class="title">Eingegangene Bestellungen heute</p>
+        <p class="counter" id="orderCount">Lädt...</p>
+    </div>
+    <div class="map-container">
+        <div id="map"></div>
+    </div>
+    <script>
+        // ---- Hintergrundpartikel erstellen ----
+        function createParticles() {
+            const particles = document.getElementById('particles');
+            for (let i = 0; i < 40; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                const size = Math.random() * 15 + 10;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animationDuration = `${Math.random() * 10 + 10}s`;
+                particle.style.animationDelay = `${Math.random() * 10}s`;
+                particles.appendChild(particle);
+            }
+        }
+        createParticles();
+
+        // ---- Konfetti Effekt ----
+        function triggerConfetti() {
+            confetti({
+                particleCount: 200,
+                spread: 70,
+                origin: { y: 0.6 },
+            });
+        }
+
+        // ---- Bestellungsanzahl Aktualisierung ----
+        let previousCount = null;
+
+        async function fetchOrders() {
+            try {
+                const response = await fetch('/orders');
+                const data = await response.json();
+                const newCount = data.totalOrders || 0;
+
+                if (previousCount !== newCount) {
+                    const counter = document.getElementById('orderCount');
+                    counter.innerText = newCount;
+
+                    // Konfetti nur bei Vielfachen von 5
+                    if (newCount % 5 === 0 && newCount !== 0) {
+                        triggerConfetti();
+                    }
+
+                    previousCount = newCount;
+                }
+            } catch (error) {
+                console.error('Fehler beim Abrufen der Bestellungen:', error);
+                document.getElementById('orderCount').innerText = 'Fehler';
+            }
+        }
+
+        fetchOrders();
+        setInterval(fetchOrders, 5000);
+
+        // ---- Leaflet Karte ----
+        const map = L.map('map').setView([51, 10], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+        }).addTo(map);
+
+        function parseCoordinates(coordinateString) {
+            return coordinateString.split(', ').map(coord => {
+                const [lon, lat] = coord.trim().split(' ');
+                return [parseFloat(lat), parseFloat(lon)];
+            });
+        }
+
+        async function loadMarkers() {
+            try {
+                const response = await fetch('/data/extrahierte_koordinaten.csv');
+                const data = await response.text();
+                const rows = data.split('\n').slice(1);
+
+                map.eachLayer(layer => {
+                    if (!layer._url) map.removeLayer(layer);
+                });
+
+                rows.forEach(row => {
+                    const cols = row.split(',');
+                    if (!cols[0]) return;
+
+                    const coordinates = parseCoordinates(cols[0]);
+                    const centerLat = coordinates.reduce((sum, c) => sum + c[0], 0) / coordinates.length;
+                    const centerLon = coordinates.reduce((sum, c) => sum + c[1], 0) / coordinates.length;
+
+                    L.marker([centerLat, centerLon])
+                        .addTo(map)
+                        .bindPopup(`<strong>Standort:</strong> ${centerLat.toFixed(2)}, ${centerLon.toFixed(2)}`);
+                });
+            } catch (error) {
+                console.error('Fehler beim Laden der Marker:', error);
+            }
+        }
+
+        loadMarkers();
+        setInterval(loadMarkers, 10000);
+    </script>
+</body>
+</html>
